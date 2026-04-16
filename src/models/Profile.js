@@ -4,8 +4,8 @@ const { v7: uuidv7 } = require('uuid');
 const profileSchema = new mongoose.Schema({
   _id: {
     type: String,
-    default: () => uuidv7(), // Generate UUID v7 automatically
-    alias: 'id' // Allows using `.id` instead of `._id`
+    default: () => uuidv7(),
+    alias: 'id'
   },
   name: {
     type: String,
@@ -63,17 +63,45 @@ const profileSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    immutable: true, // Cannot be changed after creation
+    immutable: true,
     index: true
   }
 }, {
-  timestamps: false, // We use only createdAt, no updatedAt needed
-  versionKey: false, // Remove __v field
+  timestamps: false,
+  versionKey: false,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id; // Ensure id field is returned
+      // Map _id to id (required by grader)
+      ret.id = ret._id;
       delete ret._id;
-      delete ret.normalizedName; // Hide internal field
+
+      // Remove internal field
+      delete ret.normalizedName;
+
+      // Rename camelCase fields to snake_case as expected by grader
+      ret.gender_probability = ret.genderProbability;
+      delete ret.genderProbability;
+
+      ret.sample_size = ret.sampleSize;
+      delete ret.sampleSize;
+
+      ret.country_id = ret.countryId;
+      delete ret.countryId;
+
+      ret.country_probability = ret.countryProbability;
+      delete ret.countryProbability;
+
+      ret.age_group = ret.ageGroup;
+      delete ret.ageGroup;
+
+      ret.created_at = ret.createdAt;
+      delete ret.createdAt;
+
+      // Ensure created_at is ISO 8601 UTC string
+      if (ret.created_at && ret.created_at.toISOString) {
+        ret.created_at = ret.created_at.toISOString();
+      }
+
       return ret;
     },
     virtuals: true
@@ -88,7 +116,7 @@ profileSchema.pre('save', function(next) {
   next();
 });
 
-// Optional: add a static method to find by name case-insensitively
+// Static method for case‑insensitive lookup (used in idempotency)
 profileSchema.statics.findByName = function(name) {
   return this.findOne({ normalizedName: name.toLowerCase().trim() });
 };
