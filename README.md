@@ -1,6 +1,3 @@
-Below is the complete `README.md` file that meets all grading requirements for Stage 2, including the natural language parsing explanation and limitations. Copy the entire block into your `README.md` file.
-
-```markdown
 # Stage 2 – Intelligence Query Engine
 
 ## Overview
