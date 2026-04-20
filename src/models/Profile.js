@@ -10,6 +10,7 @@ const profileSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
+    unique: true,
     trim: true
   },
   normalizedName: {
@@ -43,7 +44,7 @@ const profileSchema = new mongoose.Schema({
   },
   ageGroup: {
     type: String,
-    enum: ['child', 'teen', 'adult', 'senior', null],
+    enum: ['child', 'teenager', 'adult', 'senior', null],
     default: null,
     index: true
   },
@@ -53,6 +54,11 @@ const profileSchema = new mongoose.Schema({
     trim: true,
     default: null,
     index: true
+  },
+  countryName: {            // <-- NEW FIELD
+    type: String,
+    trim: true,
+    default: null
   },
   countryProbability: {
     type: Number,
@@ -71,14 +77,11 @@ const profileSchema = new mongoose.Schema({
   versionKey: false,
   toJSON: {
     transform: (doc, ret) => {
-      // Map _id to id (required by grader)
       ret.id = ret._id;
       delete ret._id;
-
-      // Remove internal field
       delete ret.normalizedName;
 
-      // Rename camelCase fields to snake_case as expected by grader
+      // Map to required snake_case fields
       ret.gender_probability = ret.genderProbability;
       delete ret.genderProbability;
 
@@ -87,6 +90,9 @@ const profileSchema = new mongoose.Schema({
 
       ret.country_id = ret.countryId;
       delete ret.countryId;
+
+      ret.country_name = ret.countryName;   // <-- add mapping
+      delete ret.countryName;
 
       ret.country_probability = ret.countryProbability;
       delete ret.countryProbability;
@@ -97,18 +103,14 @@ const profileSchema = new mongoose.Schema({
       ret.created_at = ret.createdAt;
       delete ret.createdAt;
 
-      // Ensure created_at is ISO 8601 UTC string
       if (ret.created_at && ret.created_at.toISOString) {
         ret.created_at = ret.created_at.toISOString();
       }
-
       return ret;
-    },
-    virtuals: true
+    }
   }
 });
 
-// Pre-save middleware to set normalizedName from name
 profileSchema.pre('save', function(next) {
   if (this.isModified('name')) {
     this.normalizedName = this.name.toLowerCase().trim();
@@ -116,7 +118,6 @@ profileSchema.pre('save', function(next) {
   next();
 });
 
-// Static method for case‑insensitive lookup (used in idempotency)
 profileSchema.statics.findByName = function(name) {
   return this.findOne({ normalizedName: name.toLowerCase().trim() });
 };

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "vercel-build": "npm install"
+    "vercel-build": "npm install",
+    "seed": "node scripts/seed.js"
   },
   "engines": {
     "node": "24.x"
