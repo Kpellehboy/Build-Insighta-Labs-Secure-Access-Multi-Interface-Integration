@@ -44,10 +44,8 @@ Supports the following query parameters (all optional):
 **Example request:**
 ```
 GET /api/profiles/019dabc1-b221-742f-a00d-fb0f4dc7db15
-
-<img width="812" height="346" alt="image" src="https://github.com/user-attachments/assets/62fecd1f-0207-437a-8fcb-ab6551bc7f55" />
-
 ```
+<img width="369" height="271" alt="image" src="https://github.com/user-attachments/assets/4254af1e-2c7b-4333-ad3c-453c0852d265" />
 
 **Example response (200 OK):**
 ```json
