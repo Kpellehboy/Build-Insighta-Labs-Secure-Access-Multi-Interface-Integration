@@ -31,29 +31,41 @@ async function githubCallback(req, res) {
     if (!code || !state) {
       return res.status(400).json({ status: 'error', message: 'Missing code or state' });
     }
+
+    // If code_verifier is not provided, try to retrieve it from OAuthState (CLI flow)
     if (!code_verifier) {
       const stored = await OAuthState.findOne({ state });
       if (stored) {
         code_verifier = stored.code_verifier;
         await OAuthState.deleteOne({ _id: stored._id });
+        console.log('[Callback] Retrieved code_verifier for state', state);
       }
+    }
+
+    // Exchange code for GitHub access token – if no code_verifier, omit it
+    const exchangePayload = {
+      client_id: process.env.GITHUB_CLIENT_ID,
+      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      code,
+      redirect_uri: process.env.GITHUB_CALLBACK_URL,
+    };
+    if (code_verifier) {
+      exchangePayload.code_verifier = code_verifier;
     }
 
     const tokenResponse = await axios.post(
       'https://github.com/login/oauth/access_token',
-      {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: process.env.GITHUB_CALLBACK_URL,
-        code_verifier: code_verifier || undefined,
-      },
+      exchangePayload,
       { headers: { Accept: 'application/json' } }
     );
 
     const { access_token, error: ghError } = tokenResponse.data;
-    if (ghError) throw new Error(ghError);
+    if (ghError) {
+      console.error('[Callback] GitHub error:', ghError);
+      return res.status(400).json({ status: 'error', message: ghError });
+    }
 
+    // Fetch user info from GitHub
     const userRes = await axios.get('https://api.github.com/user', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
@@ -77,17 +89,33 @@ async function githubCallback(req, res) {
     const { token: refreshToken, expiresAt } = generateRefreshToken(user.id);
     await saveRefreshToken(user.id, refreshToken, expiresAt);
 
-    // Store for CLI polling
-    if (state) {
-      await AuthSession.create({ state, access_token: ourAccessToken, refresh_token: refreshToken });
-    }
+    // Store for CLI polling (if needed)
+    await AuthSession.create({ state, access_token: ourAccessToken, refresh_token: refreshToken });
 
-    if (req.headers.accept?.includes('application/json')) {
-      return res.json({ status: 'success', access_token: ourAccessToken, refresh_token: refreshToken });
+    // Respond based on client type
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      // CLI expects JSON
+      return res.json({
+        status: 'success',
+        access_token: ourAccessToken,
+        refresh_token: refreshToken
+      });
     } else {
-      res.cookie('access_token', ourAccessToken, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 3*60*1000 });
-      res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 5*60*1000 });
-      return res.redirect(process.env.WEB_PORTAL_URL || 'http://localhost:5500');
+      // Web browser – set HTTP‑only cookies and redirect to web portal
+      res.cookie('access_token', ourAccessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 3 * 60 * 1000
+      });
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 5 * 60 * 1000
+      });
+      const redirectUrl = process.env.WEB_PORTAL_URL || 'http://localhost:5500';
+      return res.redirect(redirectUrl);
     }
   } catch (err) {
     console.error('[Callback] Exception:', err.message);
@@ -110,6 +138,7 @@ async function refreshToken(req, res) {
     await saveRefreshToken(user.id, newRefreshToken, expiresAt);
     res.json({ status: 'success', access_token: accessToken, refresh_token: newRefreshToken });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ status: 'error', message: 'Failed to refresh token' });
   }
 }
@@ -126,7 +155,6 @@ async function logout(req, res) {
   }
 }
 
-// NEW: polling endpoint for CLI
 async function getTokenByState(req, res) {
   const { state } = req.query;
   if (!state) return res.status(400).json({ status: 'error', message: 'State required' });
