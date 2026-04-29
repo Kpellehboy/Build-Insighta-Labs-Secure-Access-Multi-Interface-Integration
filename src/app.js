@@ -2,7 +2,7 @@ const cookieParser = require('cookie-parser');
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const { rateLimit, ipKeyGenerator, forwardedHeader } = require('express-rate-limit');
+const { rateLimit } = require('express-rate-limit');
 
 const app = express();
 
@@ -21,28 +21,31 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ------------------------------
-// Rate limiting
-// ------------------------------
-// Auth endpoints: 10 requests per minute
+// Helper to get client IP (respects Vercel's headers)
+function getClientIp(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0] || 
+         req.headers['x-real-ip'] || 
+         req.socket.remoteAddress || 
+         req.ip;
+}
+
+// Rate limiting for auth endpoints: 10 requests per minute
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => forwardedHeader(req) || ipKeyGenerator(req),
+  keyGenerator: (req) => getClientIp(req),
   message: { status: 'error', message: 'Too many requests, please try again later.' }
 });
 
-// General API limiter – 60 requests per minute per user (or IP)
+// General API limiter: 60 requests per minute per user (or IP)
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   keyGenerator: (req) => {
-    // If user is authenticated, use their ID
     if (req.user && req.user.id) return req.user.id;
-    // Otherwise, use forwarded header or IP
-    return forwardedHeader(req) || ipKeyGenerator(req);
+    return getClientIp(req);
   },
   message: { status: 'error', message: 'Rate limit exceeded' }
 });
@@ -53,15 +56,14 @@ app.use('/auth', authLimiter);
 // ------------------------------
 // Routes
 // ------------------------------
-// Auth routes (GitHub OAuth, refresh, logout)
 const authRoutes = require('./routes/authRoutes');
 app.use('/auth', authRoutes);
 
-// API versioning middleware (all /api routes require X-API-Version: 1)
+// API versioning middleware
 const { requireApiVersion } = require('./middleware/versioning');
 app.use('/api', requireApiVersion);
 
-// Validate query parameters (optional but helps the grader)
+// Validate query parameters
 app.use('/api/profiles', (req, res, next) => {
   const allowedParams = [
     'gender', 'age_group', 'country_id', 'min_age', 'max_age',
@@ -77,16 +79,15 @@ app.use('/api/profiles', (req, res, next) => {
   next();
 });
 
-// Profile routes (authentication + role enforcement is done inside the router)
 const profileRoutes = require('./routes/profileRoutes');
 app.use('/api/profiles', apiLimiter, profileRoutes);
 
-// 404 handler for unmatched routes
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.originalUrl} not found` });
 });
 
-// Global error handler (must be last)
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error:', err);
   const statusCode = err.statusCode || 500;
